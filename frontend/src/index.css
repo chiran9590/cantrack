@@ -1,0 +1,24 @@
+@import "tailwindcss";
+@theme {
+  --font-display: "Fraunces", serif;
+  --font-sans: "DM Sans", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+}
+body { font-family: var(--font-sans); color: #e7f5ec;
+  background: radial-gradient(1100px 500px at 8% -10%, #15803d55, transparent), radial-gradient(800px 400px at 100% 100%, #65a30d33, transparent), #07130d; min-height: 100vh; }
+.card { border-radius: 1rem; border: 1px solid #ffffff1a; background: #ffffff0d; padding: 1rem; }
+.input { width: 100%; border-radius: .75rem; border: 1px solid #ffffff26; background: #00000040; padding: .85rem 1rem; font-family: var(--font-mono); outline: none; }
+.input:focus { border-color: #4ade80; box-shadow: 0 0 0 3px #4ade8033; }
+.btn { border-radius: .75rem; background: #4ade80; color: #052e16; font-weight: 700; padding: .85rem 1.25rem; }
+.btn:disabled { opacity: .35; }
+.btn-ghost { border-radius: .75rem; border: 1px solid #ffffff26; padding: .6rem 1rem; }
+@media print {
+  body * { visibility: hidden; }
+  #print-area, #print-area * { visibility: visible; }
+  #print-area { position: absolute; left: 0; top: 0; width: 100%; color: #000; }
+  .no-print { display: none !important; }
+}
+.btn, .btn-ghost { display: inline-block; text-align: center; cursor: pointer; }
+html { scroll-behavior: smooth; }
+@keyframes floaty { 0%,100% { transform: translateY(0) } 50% { transform: translateY(-10px) } }
+.floaty { animation: floaty 6s ease-in-out infinite; }
