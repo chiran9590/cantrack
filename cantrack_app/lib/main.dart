@@ -1,13 +1,16 @@
 import 'package:flutter/material.dart';
 
 import 'api.dart';
-import 'login_page.dart';
-import 'scan_page.dart';
+import 'auth_page.dart';
+import 'offline.dart';
+import 'shell.dart';
 import 'theme.dart';
+import 'widgets.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Api.instance.load();
+  await OfflineQueue.load();
   runApp(const CanTrackApp());
 }
 
@@ -18,7 +21,6 @@ class CanTrackApp extends StatefulWidget {
 }
 
 class _CanTrackAppState extends State<CanTrackApp> {
-  User? _user;
   bool _ready = false;
 
   @override
@@ -31,9 +33,10 @@ class _CanTrackAppState extends State<CanTrackApp> {
   Future<void> _restore() async {
     if (Api.instance.signedIn) {
       try {
-        _user = await Api.instance.me();
-      } catch (_) {
-        await Api.instance.logout();
+        await Api.instance.me();
+      } on ApiException catch (e) {
+        // Offline at start-up: keep the saved login. Rejected token: sign out.
+        if (e.status != null) await Api.instance.logout();
       }
     }
     if (mounted) setState(() => _ready = true);
@@ -41,18 +44,18 @@ class _CanTrackAppState extends State<CanTrackApp> {
 
   Future<void> _logout() async {
     await Api.instance.logout();
-    if (mounted) setState(() => _user = null);
+    if (mounted) setState(() {});
   }
 
   @override
   Widget build(BuildContext context) {
     Widget home;
     if (!_ready) {
-      home = const Scaffold(body: Center(child: CircularProgressIndicator(color: kGreen)));
-    } else if (_user == null) {
-      home = LoginPage(onLogin: (u) => setState(() => _user = u));
+      home = Scaffold(body: Loading());
+    } else if (!Api.instance.signedIn || Api.instance.user == null) {
+      home = AuthPage(onAuth: (_) => setState(() {}));
     } else {
-      home = ScanPage(user: _user!, onLogout: _logout);
+      home = Shell(onLogout: _logout);
     }
     return MaterialApp(title: 'CanTrack', debugShowCheckedModeBanner: false, theme: buildTheme(), home: home);
   }

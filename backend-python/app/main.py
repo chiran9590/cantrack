@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 from psycopg import errors as pgerr
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-load_dotenv()
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env'))
 if not os.environ.get("DATABASE_URL") or len(os.environ.get("JWT_SECRET", "")) < 32:
     raise RuntimeError("Set DATABASE_URL and a JWT_SECRET of at least 32 characters in backend/.env")
 
