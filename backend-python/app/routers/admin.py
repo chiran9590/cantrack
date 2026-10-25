@@ -68,7 +68,7 @@ def overview(_=Depends(require("admin"))):
     for x in users:
         if x["active"]:
             by_role[x["role"]] = by_role.get(x["role"], 0) + 1
-    tables = [q1(f"select '{t}' as \"table\", count(*) as rows, 'N/A' as size from {t}") for t in TABLES]
+    tables = [q1(f"select '{t}' as \"table\", count(*) as row_count, 'N/A' as size from {t}") for t in TABLES]
     act = q1("select count(*) as total, sum(case when moved_at >= current_date then 1 else 0 end) as today, max(moved_at) as last_scan from plant_location_history")
     return {
         "database": {**info, "host": u.hostname, "port": u.port or 3306, "data_directory": data_dir},
