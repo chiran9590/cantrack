@@ -100,10 +100,10 @@ def structure(_=Depends(require("admin"))):
     keys = q("""select tc.table_name, kcu.column_name, tc.constraint_type from information_schema.table_constraints tc
                 join information_schema.key_column_usage kcu on kcu.constraint_name = tc.constraint_name and kcu.table_schema = tc.table_schema
                 where tc.table_schema = database() and tc.constraint_type in ('PRIMARY KEY', 'UNIQUE')""")
-    fks = q("""select kcu.table_name as table_name, kcu.column_name as column_name, 
+    fks = q("""select kcu.table_name, kcu.column_name, 
                kcu.referenced_table_name as ref_table, kcu.referenced_column_name as ref_column
                from information_schema.key_column_usage kcu
-               join information_schema.table_constraints tc on tc.constraint_name = kcu.constraint_name
+               join information_schema.table_constraints tc on tc.constraint_name = kcu.constraint_name and kcu.table_schema = tc.table_schema
                where tc.constraint_type = 'FOREIGN KEY' and tc.table_schema = database()""")
     sizes = {r["table_name"]: 'N/A' for r in q("""select table_name from information_schema.tables where table_schema = database()""")}
     pk = {(k["table_name"], k["column_name"]) for k in keys if k["constraint_type"] == "PRIMARY KEY"}
