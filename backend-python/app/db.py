@@ -49,7 +49,13 @@ def q(sql, params=None):
         with conn.cursor() as cur:
             cur.execute(sql, params)
             conn.commit()
-            return cur.fetchall() if cur.description else []
+            if cur.description:
+                # Convert column names to lowercase for MySQL compatibility
+                rows = cur.fetchall()
+                if rows:
+                    cols = [desc[0].lower() for desc in cur.description]
+                    return [dict(zip(cols, row)) for row in rows]
+            return []
     finally:
         conn.close()
 
