@@ -50,10 +50,10 @@ def _cfg(table: str):
         raise HTTPException(404, "Unknown table")
     cfg = {"edit": [], "insert": [], "delete": False, "hide": [], **base}
     cols = []
-    for r in q("select column_name, data_type as udt_name, is_nullable from information_schema.columns where table_schema=database() and table_name=%s order by ordinal_position", (table,)):
-        if r["column_name"] in cfg["hide"] or not re.fullmatch(r"[a-z0-9_]+", r["udt_name"]):
+    for r in q("select column_name, data_type, is_nullable from information_schema.columns where table_schema=database() and table_name=%s order by ordinal_position", (table,)):
+        if r["column_name"] in cfg["hide"] or not re.fullmatch(r"[a-z0-9_]+", r["data_type"]):
             continue
-        cols.append({"name": r["column_name"], "udt": r["udt_name"], "nullable": r["is_nullable"] == "YES",
+        cols.append({"name": r["column_name"], "udt": r["data_type"], "nullable": r["is_nullable"] == "YES",
                      "pk": r["column_name"] in cfg["pk"], "editable": r["column_name"] in cfg["edit"]})
     return cfg, cols
 
