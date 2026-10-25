@@ -105,7 +105,7 @@ def structure(_=Depends(require("admin"))):
                from information_schema.key_column_usage kcu
                join information_schema.table_constraints tc on tc.constraint_name = kcu.constraint_name and kcu.table_schema = tc.table_schema
                where tc.constraint_type = 'FOREIGN KEY' and tc.table_schema = database()""")
-    sizes = {r["table_name"]: 'N/A' for r in q("""select table_name from information_schema.tables where table_schema = database()""")}
+    sizes = {r["table_name"]: 'N/A' for r in q("""select table_name from information_schema.tables where table_schema = database()""") if "table_name" in r}
     pk = {(k["table_name"], k["column_name"]) for k in keys if k["constraint_type"] == "PRIMARY KEY"}
     uq = {(k["table_name"], k["column_name"]) for k in keys if k["constraint_type"] == "UNIQUE"}
     fk = {(f["table_name"], f["column_name"]): f"{f['ref_table']}.{f['ref_column']}" for f in fks}
