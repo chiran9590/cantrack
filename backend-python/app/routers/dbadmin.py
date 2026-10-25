@@ -86,7 +86,7 @@ def list_tables(_=Depends(require("admin"))):
     out = []
     for t, base in CONFIG.items():
         cfg = {"edit": [], "insert": [], "delete": False, **base}
-        n = q1(f'select count(*) as n from "{t}"')["n"]
+        n = q1(f'select count(*) as row_count from "{t}"')["row_count"]
         out.append({"table": t, "rows": n, "read_only": not (cfg["edit"] or cfg["insert"] or cfg["delete"]),
                     "can_insert": bool(cfg["insert"]), "can_delete": cfg["delete"]})
     return out
@@ -117,7 +117,7 @@ def structure(_=Depends(require("admin"))):
                                   "default": c["column_default"], "pk": (t, c["column_name"]) in pk,
                                   "unique": (t, c["column_name"]) in uq, "references": fk.get((t, c["column_name"]))})
     for t in out:
-        out[t]["rows"] = q1(f'select count(*) as n from "{t}"')["n"]
+        out[t]["rows"] = q1(f'select count(*) as row_count from "{t}"')["row_count"]
     return list(out.values())
 
 
