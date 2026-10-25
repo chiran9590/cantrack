@@ -1,11 +1,27 @@
 # Deployment Guide
 
-## Backend (Railway) + Frontend (Vercel)
+## Backend (Render) + Frontend (Vercel)
+
+### ⚠️ Important: Render + MySQL
+Render only provides managed PostgreSQL databases. Since this project uses MySQL, you have two options:
+
+**Option 1: Use External MySQL (Recommended)**
+- PlanetScale (free tier available)
+- AWS RDS (paid)
+- Google Cloud SQL (paid)
+- DigitalOcean Managed MySQL (paid)
+
+**Option 2: Switch to PostgreSQL**
+- Use Render's built-in PostgreSQL
+- Requires reverting the MySQL migration
+
+This guide assumes **Option 1** with PlanetScale (free tier).
 
 ### Prerequisites
 - GitHub account with repository
-- Railway account (https://railway.app)
+- Render account (https://render.com)
 - Vercel account (https://vercel.com)
+- PlanetScale account (https://planetscale.com) for MySQL
 
 ---
 
@@ -23,24 +39,41 @@ git push -u origin main
 
 ---
 
-## 2. Deploy Backend to Railway
+## 2. Set up MySQL on PlanetScale
 
-### Step 1: Create Railway Project
-1. Go to https://railway.app and sign in
-2. Click "New Project" → "Deploy from GitHub repo"
-3. Select your `cantrack` repository
-4. Railway will detect the Python backend
+### Step 1: Create Database
+1. Go to https://planetscale.com and sign in
+2. Click "New database"
+3. Name it `cantrack`
+4. Select a region close to you
+5. Click "Create database"
 
-### Step 2: Add MySQL Database
-1. In your Railway project, click "New Service"
-2. Select "Database" → "MySQL"
-3. Railway will create a MySQL instance
+### Step 2: Get Connection String
+1. In your PlanetScale database, click "Connect"
+2. Select "Python" or "General"
+3. Copy the connection string
+4. Format it as: `mysql+pymysql://USER:PASSWORD@HOST:PORT/DATABASE`
 
-### Step 3: Configure Environment Variables
-Go to your backend service → Variables and add:
+---
+
+## 3. Deploy Backend to Render
+
+### Step 1: Create Render Project
+1. Go to https://render.com and sign in
+2. Click "New" → "Web Service"
+3. Connect your GitHub repository
+4. Set "Root Directory" to `backend-python`
+5. Configure:
+   - **Name**: `cantrack-backend`
+   - **Runtime**: `Python 3`
+   - **Build Command**: `pip install -r requirements.txt`
+   - **Start Command**: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+
+### Step 2: Configure Environment Variables
+Add these environment variables in Render:
 
 ```
-DATABASE_URL=mysql+pymysql://root:PASSWORD@HOST:PORT/DATABASE
+DATABASE_URL=mysql+pymysql://USER:PASSWORD@HOST:PORT/DATABASE
 JWT_SECRET=your-long-random-secret-at-least-32-characters
 CORS_ORIGIN=https://your-frontend.vercel.app
 SEED_ADMIN_PASSWORD=ChangeMe123!
@@ -51,34 +84,26 @@ PHENOMEONE_USER=
 PHENOMEONE_PASSWORD=
 ```
 
-**Get MySQL credentials:**
-- Click on your MySQL service in Railway
-- Copy the connection string
-- Format it as: `mysql+pymysql://USER:PASSWORD@HOST:PORT/DATABASE`
+**Replace DATABASE_URL** with your PlanetScale connection string.
 
-### Step 4: Initialize Database
-Railway will automatically run the startup command. Add a startup script:
+### Step 3: Initialize Database
+Since Render doesn't run startup scripts automatically, you need to initialize the database manually:
 
-Create `backend-python/start.sh`:
+1. After deployment, go to Render → your service → "Shell"
+2. Run:
 ```bash
-#!/bin/bash
 python -m app.init_db
 python -m app.seed
-uvicorn app.main:app --host 0.0.0.0 --port $PORT
 ```
 
-Update Procfile:
-```
-web: bash start.sh
-```
-
-### Step 5: Deploy
-- Railway will auto-deploy on push
-- Get your backend URL from Railway (e.g., `https://cantrack-backend.railway.app`)
+### Step 4: Deploy
+- Click "Create Web Service"
+- Render will build and deploy
+- Get your backend URL (e.g., `https://cantrack-backend.onrender.com`)
 
 ---
 
-## 3. Deploy Frontend to Vercel
+## 4. Deploy Frontend to Vercel
 
 ### Step 1: Create Vercel Project
 1. Go to https://vercel.com and sign in
