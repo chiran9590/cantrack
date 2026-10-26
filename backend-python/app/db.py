@@ -104,7 +104,7 @@ def q(sql, params=None):
     try:
         with conn.cursor() as cur:
             cur.execute(sql, params)
-            result = cur.fetchall() if cur.with_rows else []
+            result = cur.fetchall() if cur.description else []
         conn.commit()
         return result
     finally:
@@ -122,7 +122,7 @@ def query(sql, params=None):
     try:
         with conn.cursor() as cur:
             cur.execute(sql, params)
-            if not cur.with_rows:
+            if not cur.description:
                 return [], []
             columns = [desc[0] for desc in cur.description]
             rows = cur.fetchall()
