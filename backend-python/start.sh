@@ -1,4 +1,4 @@
 #!/bin/bash
+# Used by Render. init_db is idempotent: it creates missing tables and never touches your data.
 python -m app.init_db
-python -m app.seed
-uvicorn app.main:app --host 0.0.0.0 --port $PORT
+exec uvicorn app.main:app --host 0.0.0.0 --port "${PORT:-4000}"

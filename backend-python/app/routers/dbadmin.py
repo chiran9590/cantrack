@@ -50,18 +50,18 @@ def _cfg(table: str):
         raise HTTPException(404, "Unknown table")
     cfg = {"edit": [], "insert": [], "delete": False, "hide": [], **base}
     cols = []
-    for r in q("select column_name, data_type, is_nullable from information_schema.columns where table_schema=database() and table_name=%s order by ordinal_position", (table,)):
-        if r["column_name"] in cfg["hide"] or not re.fullmatch(r"[a-z0-9_]+", r["data_type"]):
+    for r in q("select column_name, udt_name, is_nullable from information_schema.columns "
+               "where table_schema = current_schema() and table_name = %s order by ordinal_position", (table,)):
+        if r["column_name"] in cfg["hide"] or not re.fullmatch(r"[a-z0-9_]+", r["udt_name"]):
             continue
-        cols.append({"name": r["column_name"], "udt": r["data_type"], "nullable": r["is_nullable"] == "YES",
+        cols.append({"name": r["column_name"], "udt": r["udt_name"], "nullable": r["is_nullable"] == "YES",
                      "pk": r["column_name"] in cfg["pk"], "editable": r["column_name"] in cfg["edit"]})
     return cfg, cols
 
 
-def _where(cfg, cols, key: dict):
+def _where(cfg, key: dict):
     if set(key) != set(cfg["pk"]):
         raise HTTPException(400, "Bad row key")
-    udt = {c["name"]: c["udt"] for c in cols}
     parts, params = [], {}
     for i, k in enumerate(cfg["pk"]):
         parts.append(f'"{k}" = %(k{i})s')
@@ -95,17 +95,22 @@ def list_tables(_=Depends(require("admin"))):
 @router.get("/_structure")
 def structure(_=Depends(require("admin"))):
     """The whole database layout: every table, column, key and relationship."""
-    cols = q("""select table_name, column_name, data_type as udt_name, is_nullable, column_default from information_schema.columns
-                where table_schema = database() order by table_name, ordinal_position""")
+    cols = q("""select table_name, column_name, udt_name, is_nullable, column_default from information_schema.columns
+                where table_schema = current_schema() and table_name in (select table_name from information_schema.tables
+                      where table_schema = current_schema() and table_type = 'BASE TABLE')
+                order by table_name, ordinal_position""")
     keys = q("""select tc.table_name, kcu.column_name, tc.constraint_type from information_schema.table_constraints tc
-                join information_schema.key_column_usage kcu on kcu.constraint_name = tc.constraint_name and kcu.table_schema = tc.table_schema
-                where tc.table_schema = database() and tc.constraint_type in ('PRIMARY KEY', 'UNIQUE')""")
-    fks = q("""select kcu.table_name, kcu.column_name, 
-               kcu.referenced_table_name as ref_table, kcu.referenced_column_name as ref_column
-               from information_schema.key_column_usage kcu
-               join information_schema.table_constraints tc on tc.constraint_name = kcu.constraint_name and kcu.table_schema = tc.table_schema
-               where tc.constraint_type = 'FOREIGN KEY' and tc.table_schema = database()""")
-    sizes = {r["table_name"]: 'N/A' for r in q("""select table_name from information_schema.tables where table_schema = database()""") if "table_name" in r}
+                join information_schema.key_column_usage kcu on kcu.constraint_name = tc.constraint_name
+                     and kcu.constraint_schema = tc.constraint_schema and kcu.table_name = tc.table_name
+                where tc.table_schema = current_schema() and tc.constraint_type in ('PRIMARY KEY', 'UNIQUE')""")
+    fks = q("""select kcu.table_name, kcu.column_name, ccu.table_name as ref_table, ccu.column_name as ref_column
+               from information_schema.table_constraints tc
+               join information_schema.key_column_usage kcu on kcu.constraint_name = tc.constraint_name and kcu.constraint_schema = tc.constraint_schema
+               join information_schema.constraint_column_usage ccu on ccu.constraint_name = tc.constraint_name and ccu.constraint_schema = tc.constraint_schema
+               where tc.constraint_type = 'FOREIGN KEY' and tc.table_schema = current_schema()""")
+    sizes = {r["table_name"]: r["size"] for r in q(
+        """select table_name, pg_size_pretty(pg_total_relation_size(quote_ident(table_name))) as size
+           from information_schema.tables where table_schema = current_schema() and table_type = 'BASE TABLE'""")}
     pk = {(k["table_name"], k["column_name"]) for k in keys if k["constraint_type"] == "PRIMARY KEY"}
     uq = {(k["table_name"], k["column_name"]) for k in keys if k["constraint_type"] == "UNIQUE"}
     fk = {(f["table_name"], f["column_name"]): f"{f['ref_table']}.{f['ref_column']}" for f in fks}
@@ -116,8 +121,8 @@ def structure(_=Depends(require("admin"))):
         out[t]["columns"].append({"name": c["column_name"], "type": c["udt_name"], "nullable": c["is_nullable"] == "YES",
                                   "default": c["column_default"], "pk": (t, c["column_name"]) in pk,
                                   "unique": (t, c["column_name"]) in uq, "references": fk.get((t, c["column_name"]))})
-    for t in out:
-        out[t]["rows"] = q1(f'select count(*) as row_count from "{t}"')["row_count"]
+    for t in out:  # t comes from the database's own table list, quoted below
+        out[t]["rows"] = q1('select count(*) as row_count from "%s"' % t.replace('"', '""'))["row_count"]
     return list(out.values())
 
 
@@ -127,7 +132,7 @@ def read_rows(table: str, term: str = Query("", alias="q"), offset: int = Query(
     cfg, cols = _cfg(table)
     where, params = "", {"limit": limit, "offset": offset}
     if term.strip():
-        where = "where concat_ws(' ', " + ", ".join(f'cast("{c["name"]}" as char)' for c in cols) + ") like %(like)s"
+        where = "where concat_ws(' ', " + ", ".join(f'cast("{c["name"]}" as text)' for c in cols) + ") ilike %(like)s"
         params["like"] = f"%{term.strip()}%"
     order = ", ".join(f'"{k}" desc' for k in cfg["pk"])
     rows = q(f'select {_sel(cols)} from "{table}" {where} order by {order} limit %(limit)s offset %(offset)s', params)
@@ -146,21 +151,17 @@ def update_row(table: str, b: Update, admin=Depends(require("admin"))):
     if table == "users" and b.key.get("id") == str(admin["id"]) and ({"role", "active"} & set(b.values)):
         raise HTTPException(400, "You cannot change your own role or disable your own account")
     by = {c["name"]: c for c in cols}
-    where, params = _where(cfg, cols, b.key)
+    where, params = _where(cfg, b.key)
     sets = []
     for i, (k, v) in enumerate(b.values.items()):
         sets.append(f'"{k}" = %(v{i})s')
         params[f"v{i}"] = _val(by[k], v)
     with tx() as c:
-        with c.cursor() as cur:
-            cur.execute(f'select {_sel(cols)} from "{table}" where {where} for update', params)
-            before = cur.fetchone()
+        before = c.execute(f'select {_sel(cols)} from "{table}" where {where} for update', params).fetchone()
         if not before:
             raise HTTPException(404, "Row not found")
-        with c.cursor() as cur:
-            cur.execute(f'update "{table}" set {", ".join(sets)} where {where}', params)
-            cur.execute(f'select {_sel(cols)} from "{table}" where {where}', params)
-            after = cur.fetchone()
+        c.execute(f'update "{table}" set {", ".join(sets)} where {where}', params)
+        after = c.execute(f'select {_sel(cols)} from "{table}" where {where}', params).fetchone()
         audit(c, admin["id"], "db.update", _target(table, b.key), before, after)
     return after
 
@@ -176,16 +177,17 @@ def insert_row(table: str, b: Insert, admin=Depends(require("admin"))):
         raise HTTPException(400, f"Not allowed: {', '.join(bad)}")
     if not vals:
         raise HTTPException(400, "Nothing to add")
-    by = {c["name"]: c for c in cols}
+    missing = [k for k in cfg["pk"] if k not in vals]
+    if missing:
+        raise HTTPException(400, f"Required: {', '.join(missing)}")
     names = list(vals)
     params = {f"v{i}": vals[k] for i, k in enumerate(names)}
     q_cols = ", ".join('"%s"' % k for k in names)
-    q_vals = ", ".join("%%(v%d)s" % i for i, k in enumerate(names))
+    q_vals = ", ".join("%%(v%d)s" % i for i, _ in enumerate(names))
+    where = " and ".join(f'"{k}" = %(k{i})s' for i, k in enumerate(cfg["pk"]))
     with tx() as c:
-        with c.cursor() as cur:
-            cur.execute(f'insert into "{table}"({q_cols}) values ({q_vals})', params)
-            cur.execute(f'select {_sel(cols)} from "{table}" where {" and ".join(f"{k}=%({k})s" for k in cfg["pk"])}', {k: vals[k] for k in cfg["pk"]})
-            row = cur.fetchone()
+        c.execute(f'insert into "{table}"({q_cols}) values ({q_vals})', params)
+        row = c.execute(f'select {_sel(cols)} from "{table}" where {where}', {f"k{i}": vals[k] for i, k in enumerate(cfg["pk"])}).fetchone()
         audit(c, admin["id"], "db.insert", f"{table}:" + ",".join(str(row[k]) for k in cfg["pk"]), None, row)
     return row
 
@@ -195,14 +197,11 @@ def delete_row(table: str, b: Key, admin=Depends(require("admin"))):
     cfg, cols = _cfg(table)
     if not cfg["delete"]:
         raise HTTPException(403, "Rows cannot be deleted from this table")
-    where, params = _where(cfg, cols, b.key)
+    where, params = _where(cfg, b.key)
     with tx() as c:
-        with c.cursor() as cur:
-            cur.execute(f'select {_sel(cols)} from "{table}" where {where}', params)
-            row = cur.fetchone()
+        row = c.execute(f'select {_sel(cols)} from "{table}" where {where}', params).fetchone()
         if not row:
             raise HTTPException(404, "Row not found")
-        with c.cursor() as cur:
-            cur.execute(f'delete from "{table}" where {where}', params)
+        c.execute(f'delete from "{table}" where {where}', params)
         audit(c, admin["id"], "db.delete", _target(table, b.key), row, None)
     return {"ok": True}

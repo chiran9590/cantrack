@@ -43,6 +43,12 @@ export interface DbPage { columns: DbColumn[]; rows: Record<string, unknown>[]; 
 
 export interface DbStructure { table: string; rows: number; size: string | null; columns: { name: string; type: string; nullable: boolean; default: string | null; pk: boolean; unique: boolean; references: string | null }[] }
 
+// Empty in development (Vite forwards /api to the backend). On Vercel set VITE_API_URL to the backend address,
+// e.g. https://cantrack-backend.onrender.com  (no trailing slash).
+const API = ((import.meta.env.VITE_API_URL as string | undefined) ?? '').trim().replace(/\/+$/, '')
+/** Free hosting puts the backend to sleep when idle; a ping on page load wakes it while the visitor reads the page. */
+export const wakeApi = () => { fetch(`${API}/api/health`).catch(() => {}) }
+
 const KEY = 'cantrack_token'
 export const token = { get: () => localStorage.getItem(KEY), set: (t: string) => localStorage.setItem(KEY, t), clear: () => localStorage.removeItem(KEY) }
 let onUnauthorized = () => {}
@@ -50,10 +56,10 @@ export const setUnauthorizedHandler = (f: () => void) => { onUnauthorized = f }
 
 async function call<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
   const t = token.get()
-  const res = await fetch('/api' + path, {
+  const res = await fetch(API + '/api' + path, {
     method, body: body ? JSON.stringify(body) : undefined,
     headers: { 'Content-Type': 'application/json', ...(t ? { Authorization: `Bearer ${t}` } : {}) },
-  })
+  }).catch(() => { throw new Error('Cannot reach the server. If it was idle it may still be waking up: wait a few seconds and try again.') })
   const data = await res.json().catch(() => ({}))
   if (res.status === 401 && path !== '/auth/login') onUnauthorized()
   if (!res.ok) throw new Error(data.error ?? 'Request failed')
@@ -95,7 +101,7 @@ export const api = {
 }
 
 export async function downloadReport(name: string, p: Record<string, string>, format: 'csv' | 'xlsx') {
-  const res = await fetch(`/api/reports/${name}?${qs({ ...p, format })}`, { headers: { Authorization: `Bearer ${token.get()}` } })
+  const res = await fetch(`${API}/api/reports/${name}?${qs({ ...p, format })}`, { headers: { Authorization: `Bearer ${token.get()}` } })
   if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? 'Download failed')
   const a = document.createElement('a')
   a.href = URL.createObjectURL(await res.blob())

@@ -1,165 +1,62 @@
-# Deployment Guide
+# Free deployment: Neon (database) + Render (API) + Vercel (website)
 
-## Backend (Render) + Frontend (Vercel)
+| Part | Service | Free-tier facts (checked Oct 2026: re-check the pricing pages) |
+|---|---|---|
+| Database | **Neon** Postgres | permanent free plan, no card, 0.5 GB, scale-to-zero after 5 min idle (first query then takes a couple of seconds) |
+| API | **Render** web service (Free) | sleeps after 15 min without traffic; wakes in about a minute; 750 free hours/month |
+| Website | **Vercel** (Hobby) | free for personal projects |
 
-### Prerequisites
-- GitHub account with repository
-- Render account (https://render.com)
-- Vercel account (https://vercel.com)
+Do **not** use Render's free PostgreSQL: it expires. Render's free web service has no Shell, so the commands below run on your laptop against Neon.
 
----
+Use the same region family for speed, e.g. Neon `AWS Asia Pacific (Singapore)` + Render `Singapore`.
 
-## 1. Push Code to GitHub
-
-```bash
-cd /Users/chiran/Downloads/CanTrack-261012_cantrack
-git init
-git add .
-git commit -m "Initial commit"
-git branch -M main
-git remote add origin https://github.com/YOUR_USERNAME/cantrack.git
-git push -u origin main
+## 1. Push to GitHub
 ```
-
----
-
-## 2. Deploy Backend to Render
-
-### Step 1: Create Render Project
-1. Go to https://dashboard.render.com/web/new
-2. Click "Connect" to link your GitHub account
-3. Select `chiran9590/cantrack` repository
-4. Set "Root Directory" to `backend-python`
-5. Configure:
-   - **Name**: `cantrack-backend`
-   - **Runtime**: `Python 3`
-   - **Build Command**: `pip install -r requirements.txt`
-   - **Start Command**: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
-
-### Step 2: Add PostgreSQL Database
-1. In your Render dashboard, click "New" → "PostgreSQL"
-2. Name it `cantrack-db`
-3. Select a region close to you
-4. Click "Create Database"
-
-### Step 3: Configure Environment Variables
-Go to your backend service → Environment and add:
-
+cd CanTrack-261012_cantrack
+git init && git add . && git commit -m "CanTrack" && git branch -M main
+git remote add origin https://github.com/YOUR_USER/cantrack.git && git push -u origin main
 ```
-DATABASE_URL=postgresql://USER:PASSWORD@HOST:PORT/DATABASE
-JWT_SECRET=your-long-random-secret-at-least-32-characters
-CORS_ORIGIN=https://your-frontend.vercel.app
-SEED_ADMIN_PASSWORD=ChangeMe123!
+`.env` is git-ignored: never commit it.
+
+## 2. Neon database
+1. neon.com → New project → copy the connection string from **Connect**. It looks like `postgresql://user:pass@ep-xxx.ap-southeast-1.aws.neon.tech/neondb?sslmode=require`.
+2. On your laptop, put it in `backend-python/.env` as `DATABASE_URL` and run once:
+```
+cd backend-python && source .venv/bin/activate
+python -m app.check_db            # must say OK
+python -m app.init_db             # creates the tables
+python -m app.seed --admin-only   # creates admin@cantrack.local with SEED_ADMIN_PASSWORD (use python -m app.seed for demo data)
+```
+To bring your local MySQL data to Neon instead of seeding: skip the seed line and run `python -m app.migrate_from_mysql --user root --database cantrack` (see README).
+
+## 3. Render API
+1. Render → New → **Web Service** → pick the repo.
+2. Settings: Root Directory `backend-python` · Runtime Python 3 · Build `pip install -r requirements.txt` · Start `bash start.sh` · Instance type **Free** · Health check path `/api/health`.
+   (Or use the `render.yaml` in the repo root: New → Blueprint.)
+3. Environment variables:
+```
+DATABASE_URL=<the Neon string>
+JWT_SECRET=<python -c "import secrets; print(secrets.token_urlsafe(48))">
+CORS_ORIGIN=https://YOUR-SITE.vercel.app        (fill in after step 4, no trailing slash)
+SEED_ADMIN_PASSWORD=<strong password>
 OPEN_REGISTRATION=true
 REGISTRATION_ROLE=member
-PHENOMEONE_BASE_URL=
-PHENOMEONE_USER=
-PHENOMEONE_PASSWORD=
+PYTHON_VERSION=3.12.7
 ```
+4. Deploy. Open `https://YOUR-API.onrender.com/api/health/db`: it should say `reachable`. `start.sh` runs `init_db` on every start (idempotent, never touches data).
 
-**Get PostgreSQL credentials:**
-- Click on your PostgreSQL service in Render
-- Go to "Connections" tab
-- Copy the "Internal Database URL"
-- Use it as `DATABASE_URL`
+## 4. Vercel website
+1. Vercel → Add New → Project → import the repo → **Root Directory: `frontend`**.
+2. Environment variable: `VITE_API_URL=https://YOUR-API.onrender.com` (no trailing slash).
+3. Deploy, then go back to Render and set `CORS_ORIGIN` to the Vercel URL (comma-separate several). For Vercel preview URLs also set `CORS_ORIGIN_REGEX=https://cantrack-.*\.vercel\.app`.
 
-### Step 4: Initialize Database
-Since Render doesn't run startup scripts automatically, you need to initialize the database manually:
+## 5. Check
+Sign in as admin → **🗄️ Database** shows PostgreSQL version, size and row counts → **🛠️ Admin** lists the tables, and Structure shows all relationships.
 
-1. After deployment, go to Render → your service → "Shell"
-2. Run:
-```bash
-python -m app.init_db
-python -m app.seed
-```
+## Free-tier behaviour to expect
+- First visit after idle: the site loads at once (the page pings the API as it opens) but the first login may take up to a minute while Render wakes up. A monitor such as UptimeRobot hitting `/api/health` every 5 minutes keeps it awake and fits inside 750 hours for one service (about 744 h in a 31-day month); Render calls free instances unsuitable for production.
+- Neon pauses after 5 idle minutes; the first query after that is slower by a second or two. The app reconnects by itself.
+- 0.5 GB storage: roughly millions of small rows: fine for this app; watch `audit_log` and `plant_location_history`.
 
-### Step 5: Deploy
-- Click "Create Web Service"
-- Render will build and deploy
-- Get your backend URL (e.g., `https://cantrack-backend.onrender.com`)
-
----
-
-## 3. Deploy Frontend to Vercel
-
-### Step 1: Create Vercel Project
-1. Go to https://vercel.com and sign in
-2. Click "Add New" → "Project"
-3. Import your GitHub repository
-4. Set "Root Directory" to `frontend`
-
-### Step 2: Configure Environment Variables
-In Vercel project settings → Environment Variables:
-
-```
-VITE_API_URL=https://your-backend.railway.app
-```
-
-### Step 3: Deploy
-- Click "Deploy"
-- Vercel will build and deploy your React app
-- Get your frontend URL (e.g., `https://cantrack.vercel.app`)
-
-### Step 4: Update CORS
-Go back to Railway backend service → Variables:
-- Update `CORS_ORIGIN` to your Vercel frontend URL
-
----
-
-## 4. Post-Deployment Setup
-
-### Secure MySQL
-1. In Railway MySQL service, set a strong password
-2. Update `DATABASE_URL` in Railway variables
-
-### Secure JWT
-Generate a strong JWT_SECRET:
-```bash
-python -c "import secrets; print(secrets.token_urlsafe(32))"
-```
-
-### Change Demo Passwords
-After first login, change all demo user passwords.
-
----
-
-## 5. Testing
-
-1. Visit your Vercel frontend URL
-2. Login with: `admin@cantrack.local` / `ChangeMe123!`
-3. Verify dashboard loads
-4. Test plant management features
-
----
-
-## Cost Estimates
-
-**Railway (Free Tier):**
-- $5/month free credit
-- MySQL: ~$5/month after free tier
-- Backend: ~$5/month after free tier
-
-**Vercel (Free Tier):**
-- Free for personal projects
-- Unlimited deployments
-- SSL included
-
-**Total:** ~$10/month after free tiers expire
-
----
-
-## Troubleshooting
-
-### Backend won't start
-- Check Railway logs
-- Verify DATABASE_URL format
-- Ensure MySQL service is running
-
-### Frontend can't connect to backend
-- Verify VITE_API_URL is correct
-- Check CORS_ORIGIN in Railway matches Vercel domain
-- Check Railway backend is running
-
-### Database errors
-- Re-run initialization: Railway console → `python -m app.init_db`
-- Check MySQL service is healthy in Railway
+## Hardening before real users
+Change every demo password · use a new `JWT_SECRET` (32+ random chars) · set `OPEN_REGISTRATION=false` if the public should not sign up · keep `CORS_ORIGIN` to your real site.

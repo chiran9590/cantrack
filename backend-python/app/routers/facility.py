@@ -46,7 +46,7 @@ def glass_map(code: str, platform: int, _=Depends(current_user)):
                  join positions p on p.position_id = pl.current_position_id
                  where p.glasshouse_code = %s and p.platform_no = %s and pl.status = 'active'""", (code, platform))
     conflicts = q("""select distinct r.position_id from scan_rejections r join positions p on p.position_id = r.position_id
-                     where p.glasshouse_code = %s and p.platform_no = %s and r.at > date_sub(now(), interval 24 hour)""", (code, platform))
+                     where p.glasshouse_code = %s and p.platform_no = %s and r.at > now() - interval '24 hours'""", (code, platform))
     return {"cells": cells, "conflicts": [x["position_id"] for x in conflicts]}
 
 

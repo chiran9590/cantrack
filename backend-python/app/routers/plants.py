@@ -20,7 +20,7 @@ def search_plants(term: str = Query("", alias="q"), _=Depends(current_user)):
         return []
     like = f"%{t}%"
     return q("""select uuid, gid, status, sown_date, current_position_id as position from plants
-                where uuid like %s or gid like %s or current_position_id like %s
+                where uuid::text ilike %s or gid ilike %s or current_position_id ilike %s
                 order by status, gid, current_position_id limit 50""", (like, like, like))
 
 
@@ -52,7 +52,7 @@ def register_plants(b: NewPlants, user=Depends(require("admin", "breeder"))):
                 plant_uuid = str(uuid_lib.uuid4())
                 cur.execute("insert into plants(uuid,gid,sown_date,created_by) values (%s,%s,%s,%s)", 
                           (plant_uuid, b.gid, b.sown_date, user["id"]))
-                rows.append({"uuid": plant_uuid, "gid": b.gid, "sown_date": str(b.sown_date)})
+                rows.append({"uuid": plant_uuid, "gid": b.gid, "sown_date": b.sown_date.isoformat() if b.sown_date else None})
         audit(c, user["id"], "plant.create", b.gid, None, {"count": b.count})
     return rows
 
@@ -118,7 +118,7 @@ def record_scan(b: Scan, user=Depends(require("admin", "manager", "breeder", "ga
     try:
         with tx() as c:
             if b.session_id:
-                c.execute("insert into scan_sessions(id,user_id,source,device) values (%s,%s,%s,%s) on duplicate key update id=id",
+                c.execute("insert into scan_sessions(id,user_id,source,device) values (%s,%s,%s,%s) on conflict (id) do nothing",
                           (b.session_id, user["id"], b.source, b.device))
             pl = move_plant(c, user, pid, b.plant_uuid, session_id=b.session_id, source=b.source, device=b.device)
             if b.session_id:
@@ -139,7 +139,7 @@ def list_genotypes(term: str = Query("", alias="q"), _=Depends(current_user)):
     return q("""select g.gid, g.phenomeone_id, g.status, g.phenomeone_synced_at,
                        sum(case when pl.status='active' then 1 else 0 end) as active_plants, count(pl.uuid) as total_plants
                 from genotypes g left join plants pl on pl.gid = g.gid
-                where g.gid like %s group by g.gid order by g.gid limit 100""", (f"%{t}%",))
+                where g.gid ilike %s group by g.gid order by g.gid limit 100""", (f"%{t}%",))
 
 
 @router.post("/genotypes", status_code=201)

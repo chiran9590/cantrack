@@ -27,8 +27,7 @@ def login(b: Login):
         raise HTTPException(401, "Wrong email or password")
     user = {"id": u["id"], "name": u["name"], "email": u["email"], "role": u["role"]}
     with tx() as c:
-        with c.cursor() as cur:
-            cur.execute("update users set last_login_at = now() where id = %s", (u["id"],))
+        c.execute("update users set last_login_at = now() where id = %s", (u["id"],))
         audit(c, u["id"], "login", f"user:{u['id']}")
     return {"token": sign(user), "user": user}
 
@@ -45,11 +44,8 @@ def register(b: Register):
     if role not in ("member", "gardener", "breeder", "manager"):
         role = "member"
     with tx() as c:
-        with c.cursor() as cur:
-            cur.execute("insert into users(name,email,password_hash,role,last_login_at) values (%s,%s,%s,%s,now())",
-                      (b.name.strip(), b.email.strip(), hash_pw(b.password), role))
-            cur.execute("select id,name,email,role from users where email=%s", (b.email.strip(),))
-            u = cur.fetchone()
+        u = c.execute("insert into users(name,email,password_hash,role,last_login_at) values (%s,%s,%s,%s,now()) returning id,name,email,role",
+                      (b.name.strip(), b.email.strip(), hash_pw(b.password), role)).fetchone()
         audit(c, u["id"], "user.register", f"user:{u['id']}", None, {"email": u["email"], "role": role})
     return {"token": sign(u), "user": u}
 
@@ -65,7 +61,6 @@ def change_password(b: ChangePassword, user=Depends(current_user)):
     if not check_pw(b.current_password, u["password_hash"]):
         raise HTTPException(400, "Current password is wrong")
     with tx() as c:
-        with c.cursor() as cur:
-            cur.execute("update users set password_hash=%s where id=%s", (hash_pw(b.new_password), user["id"]))
+        c.execute("update users set password_hash=%s where id=%s", (hash_pw(b.new_password), user["id"]))
         audit(c, user["id"], "user.password_change", f"user:{user['id']}")
     return {"ok": True}
