@@ -100,7 +100,6 @@ def get_connection():
 
 def q(sql, params=None):
     """Run one statement in its own transaction; return rows (list of dicts) or []."""
-    print("DB q() v2 running", flush=True)
     conn = get_connection()
     try:
         with conn.cursor() as cur:
