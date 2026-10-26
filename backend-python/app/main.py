@@ -1,13 +1,12 @@
 import os
 from contextlib import asynccontextmanager
 
-import psycopg
+import pymysql
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from psycopg_pool import PoolTimeout
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
@@ -62,25 +61,19 @@ async def val_err(_, e):
     return JSONResponse({"error": msg}, status_code=400)
 
 
-@app.exception_handler(PoolTimeout)
-async def pool_err(_, e):
-    return JSONResponse({"error": "The database is not reachable right now. Try again in a few seconds."}, status_code=503)
-
-
-@app.exception_handler(psycopg.Error)
+@app.exception_handler(pymysql.MySQLError)
 async def db_err(_, e):
-    code = getattr(e, "sqlstate", None) or ""
-    if code == "23505":    # unique_violation
+    code = e.args[0] if e.args else 0
+    # MySQL error codes: https://dev.mysql.com/doc/mysql-errors/8.0/en/server-error-reference.html
+    if code == 1062:    # ER_DUP_ENTRY (unique violation)
         return JSONResponse({"error": "Already exists, or that position was just taken"}, status_code=409)
-    if code == "23503":    # foreign_key_violation
+    if code == 1452:    # ER_NO_REFERENCED_ROW_2 (foreign key violation)
         return JSONResponse({"error": "The database rejected this change (it is linked to other records)"}, status_code=409)
-    if code in ("23502", "23514"):  # not_null / check violation
+    if code in (1048, 3819):  # ER_BAD_NULL_ERROR, ER_CHECK_CONSTRAINT_VIOLATED
         return JSONResponse({"error": "The database rejected this change (a required or allowed-value rule was broken)"}, status_code=400)
-    if code.startswith("22"):       # bad value: wrong number / date / uuid / json format
+    if code in (1054, 1366, 1292):  # bad column, incorrect type, truncation
         return JSONResponse({"error": "That value is not valid for this field"}, status_code=400)
-    if code == "P0001":    # RAISE EXCEPTION from our read-only triggers
-        return JSONResponse({"error": e.diag.message_primary or "Change refused by the database"}, status_code=403)
-    if isinstance(e, psycopg.OperationalError):
+    if isinstance(e, pymysql.OperationalError):
         print("DB OPERATIONAL ERROR:", repr(e))
         return JSONResponse({"error": "The database is not reachable right now. Try again in a few seconds."}, status_code=503)
     print("DB ERROR:", repr(e))
