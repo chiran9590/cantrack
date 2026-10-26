@@ -26,36 +26,43 @@ if not ADMIN_ONLY:
 houses = [("L1", "Glasshouse L1", 4, 6, 53), ("B2", "Glasshouse B2", 4, 6, 24), ("B3", "Glasshouse B3", 6, 6, 48)]
 
 with get_connection() as conn:   # one transaction: all or nothing
-    for name, email, pw, role in users:
-        conn.execute("insert into users(name,email,password_hash,role) values (%s,%s,%s,%s) on conflict (email) do nothing",
-                     (name, email, hash_pw(pw), role))
+    with conn.cursor() as cur:
+        for name, email, pw, role in users:
+            cur.execute("insert into users(name,email,password_hash,role) values (%s,%s,%s,%s)",
+                       (name, email, hash_pw(pw), role))
 
-    admin_id = conn.execute("select id from users where role='admin' order by id limit 1").fetchone()["id"]
+        cur.execute("select id from users where role='admin' order by id limit 1")
+        admin_id = cur.fetchone()["id"]
 
-    if not ADMIN_ONLY and conn.execute("select count(*) as n from glasshouses").fetchone()["n"] == 0:
-        for h in houses:
-            create_glasshouse(conn, dict(zip(["code", "name", "platforms", "columns", "rows"], h)) | {"description": ""})
+        if not ADMIN_ONLY:
+            cur.execute("select count(*) as n from glasshouses")
+            if cur.fetchone()["n"] == 0:
+                for h in houses:
+                    create_glasshouse(cur, dict(zip(["code", "name", "platforms", "columns", "rows"], h)) | {"description": ""})
 
-        for g in range(1000, 1040):
-            info = json.dumps({"parentage": {"mother": f"GT-{g-1}", "father": f"GT-{g+1}"}, "source": "demo data"})
-            conn.execute("insert into genotypes(gid,phenomeone_id,info) values (%s,%s,%s)", (f"GT-{g}", f"P1-{g}", info))
+                for g in range(1000, 1040):
+                    info = json.dumps({"parentage": {"mother": f"GT-{g-1}", "father": f"GT-{g+1}"}, "source": "demo data"})
+                    cur.execute("insert into genotypes(gid,phenomeone_id,info) values (%s,%s,%s)", (f"GT-{g}", f"P1-{g}", info))
 
-        for pos in conn.execute("select position_id from positions").fetchall():
-            if random.random() < 0.6:
-                sown = (datetime.now() - timedelta(days=random.randint(40, 160))).date()
-                conn.execute("insert into plants(uuid,gid,sown_date,current_position_id,created_by) values (%s,%s,%s,%s,%s)",
-                             (str(uuid_lib.uuid4()), f"GT-{random.randint(1000, 1039)}", sown, pos["position_id"], admin_id))
+                cur.execute("select position_id from positions")
+                for pos in cur.fetchall():
+                    if random.random() < 0.6:
+                        sown = (datetime.now() - timedelta(days=random.randint(40, 160))).date()
+                        cur.execute("insert into plants(uuid,gid,sown_date,current_position_id,created_by) values (%s,%s,%s,%s,%s)",
+                                   (str(uuid_lib.uuid4()), f"GT-{random.randint(1000, 1039)}", sown, pos["position_id"], admin_id))
 
-        conn.execute("insert into scan_sessions(id,user_id,source) values ('S-SEED',%s,'web')", (admin_id,))
-        for pl in conn.execute("select uuid, gid, current_position_id from plants").fetchall():
-            moved_at = datetime.now() - timedelta(seconds=random.random() * 14 * 86400)
-            conn.execute("""insert into plant_location_history(plant_uuid,gid,position_id,moved_at,recorded_by,source,session_id)
-                            values (%s,%s,%s,%s,%s,'web','S-SEED')""", (pl["uuid"], pl["gid"], pl["current_position_id"], moved_at, admin_id))
+                cur.execute("insert into scan_sessions(id,user_id,source) values ('S-SEED',%s,'web')", (admin_id,))
+                cur.execute("select uuid, gid, current_position_id from plants")
+                for pl in cur.fetchall():
+                    moved_at = datetime.now() - timedelta(seconds=random.random() * 14 * 86400)
+                    cur.execute("""insert into plant_location_history(plant_uuid,gid,position_id,moved_at,recorded_by,source,session_id)
+                                    values (%s,%s,%s,%s,%s,'web','S-SEED')""", (pl["uuid"], pl["gid"], pl["current_position_id"], moved_at, admin_id))
 
-        for pl in conn.execute("select uuid, current_position_id from plants order by random() limit 15").fetchall():
-            conn.execute("""insert into plant_status_history(plant_uuid,from_status,to_status,last_position_id,reason,recorded_by)
-                            values (%s,'active','removed',%s,'Demo: removed from programme',%s)""", (pl["uuid"], pl["current_position_id"], admin_id))
-            conn.execute("update plants set status='removed', current_position_id=null where uuid=%s", (pl["uuid"],))
+                cur.execute("select uuid, current_position_id from plants order by random() limit 15")
+                for pl in cur.fetchall():
+                    cur.execute("""insert into plant_status_history(plant_uuid,from_status,to_status,last_position_id,reason,recorded_by)
+                                    values (%s,'active','removed',%s,'Demo: removed from programme',%s)""", (pl["uuid"], pl["current_position_id"], admin_id))
+                    cur.execute("update plants set status='removed', current_position_id=null where uuid=%s", (pl["uuid"],))
 
 print(f"Seeded {describe_url()}")
 print(f"  admin@cantrack.local / {admin_pw}")

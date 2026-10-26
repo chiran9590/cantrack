@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS platforms (
 );
 
 CREATE TABLE IF NOT EXISTS positions (
-  position_id     VARCHAR(50) PRIMARY KEY,               -- e.g. L1-P01-C03-R27
+  position_id     VARCHAR(50) PRIMARY KEY,
   glasshouse_code VARCHAR(4) NOT NULL,
   platform_no     INT NOT NULL,
   column_no       INT NOT NULL,
@@ -42,8 +42,6 @@ CREATE TABLE IF NOT EXISTS positions (
   UNIQUE KEY (glasshouse_code, platform_no, column_no, row_no),
   FOREIGN KEY (glasshouse_code) REFERENCES glasshouses(code)
 );
-
-CREATE INDEX positions_platform_idx ON positions (glasshouse_code, platform_no);
 
 -- ===== genotypes and plants =====
 CREATE TABLE IF NOT EXISTS genotypes (
@@ -69,13 +67,11 @@ CREATE TABLE IF NOT EXISTS plants (
   CHECK (status = 'active' OR current_position_id IS NULL)
 );
 
-CREATE INDEX plants_gid_idx ON plants (gid);
-
 -- ===== scanning =====
 CREATE TABLE IF NOT EXISTS scan_sessions (
-  id           VARCHAR(50) PRIMARY KEY,                   -- e.g. S-20261009-A3F
+  id           VARCHAR(50) PRIMARY KEY,
   user_id      INT NOT NULL,
-  source       VARCHAR(50) NOT NULL DEFAULT 'web',        -- web | mobile
+  source       VARCHAR(50) NOT NULL DEFAULT 'web',
   device       VARCHAR(255),
   started_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   last_scan_at TIMESTAMP NULL,
@@ -100,10 +96,6 @@ CREATE TABLE IF NOT EXISTS plant_location_history (
   FOREIGN KEY (session_id) REFERENCES scan_sessions(id)
 );
 
-CREATE INDEX history_plant_idx   ON plant_location_history (plant_uuid, moved_at DESC);
-CREATE INDEX history_time_idx    ON plant_location_history (moved_at DESC);
-CREATE INDEX history_session_idx ON plant_location_history (session_id);
-
 -- Rejected scans (invalid position, occupied position, ...). Powers the map's conflict cells.
 CREATE TABLE IF NOT EXISTS scan_rejections (
   id          BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -116,8 +108,6 @@ CREATE TABLE IF NOT EXISTS scan_rejections (
   at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (user_id) REFERENCES users(id)
 );
-
-CREATE INDEX rejections_pos_idx ON scan_rejections (position_id, at DESC);
 
 -- Removing a plant never deletes history: it is recorded here and the plant is marked removed.
 CREATE TABLE IF NOT EXISTS plant_status_history (
@@ -134,8 +124,6 @@ CREATE TABLE IF NOT EXISTS plant_status_history (
   FOREIGN KEY (recorded_by) REFERENCES users(id)
 );
 
-CREATE INDEX status_hist_plant_idx ON plant_status_history (plant_uuid, at DESC);
-
 -- ===== audit =====
 CREATE TABLE IF NOT EXISTS audit_log (
   id           BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -147,55 +135,3 @@ CREATE TABLE IF NOT EXISTS audit_log (
   at           TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (actor_id) REFERENCES users(id)
 );
-
-CREATE INDEX audit_time_idx ON audit_log (at DESC);
-
--- ===== history and audit are append-only (the database itself refuses edits, not just the website) =====
--- MySQL triggers for read-only tables
-DROP TRIGGER IF EXISTS lock_location_history_update;
-
-CREATE TRIGGER lock_location_history_update BEFORE UPDATE ON plant_location_history
-FOR EACH ROW
-BEGIN
-  SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Table plant_location_history is read-only: history records cannot be changed';
-END;
-
-DROP TRIGGER IF EXISTS lock_location_history_delete;
-
-CREATE TRIGGER lock_location_history_delete BEFORE DELETE ON plant_location_history
-FOR EACH ROW
-BEGIN
-  SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Table plant_location_history is read-only: history records cannot be deleted';
-END;
-
-DROP TRIGGER IF EXISTS lock_status_history_update;
-
-CREATE TRIGGER lock_status_history_update BEFORE UPDATE ON plant_status_history
-FOR EACH ROW
-BEGIN
-  SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Table plant_status_history is read-only: history records cannot be changed';
-END;
-
-DROP TRIGGER IF EXISTS lock_status_history_delete;
-
-CREATE TRIGGER lock_status_history_delete BEFORE DELETE ON plant_status_history
-FOR EACH ROW
-BEGIN
-  SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Table plant_status_history is read-only: history records cannot be deleted';
-END;
-
-DROP TRIGGER IF EXISTS lock_audit_log_update;
-
-CREATE TRIGGER lock_audit_log_update BEFORE UPDATE ON audit_log
-FOR EACH ROW
-BEGIN
-  SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Table audit_log is read-only: audit records cannot be changed';
-END;
-
-DROP TRIGGER IF EXISTS lock_audit_log_delete;
-
-CREATE TRIGGER lock_audit_log_delete BEFORE DELETE ON audit_log
-FOR EACH ROW
-BEGIN
-  SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Table audit_log is read-only: audit records cannot be deleted';
-END;
