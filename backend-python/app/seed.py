@@ -28,11 +28,18 @@ houses = [("L1", "Glasshouse L1", 4, 6, 53), ("B2", "Glasshouse B2", 4, 6, 24), 
 with get_connection() as conn:   # one transaction: all or nothing
     with conn.cursor() as cur:
         for name, email, pw, role in users:
-            cur.execute("insert into users(name,email,password_hash,role) values (%s,%s,%s,%s)",
-                       (name, email, hash_pw(pw), role))
+            # Check if user already exists to avoid duplicate error
+            cur.execute("SELECT id FROM users WHERE email = %s", (email,))
+            if cur.fetchone() is None:
+                cur.execute("insert into users(name,email,password_hash,role) values (%s,%s,%s,%s)",
+                           (name, email, hash_pw(pw), role))
 
         cur.execute("select id from users where role='admin' order by id limit 1")
-        admin_id = cur.fetchone()["id"]
+        result = cur.fetchone()
+        if result is None:
+            print("ERROR: Admin user not found after seeding")
+            sys.exit(1)
+        admin_id = result["id"]
 
         if not ADMIN_ONLY:
             cur.execute("select count(*) as n from glasshouses")
