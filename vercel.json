@@ -1,5 +1,9 @@
 {
   "buildCommand": "cd frontend && npm run build",
   "outputDirectory": "frontend/dist",
-  "framework": "vite"
+  "framework": "vite",
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "https://cantrack.onrender.com/api/:path*" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
 }
