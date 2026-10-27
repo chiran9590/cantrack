@@ -55,20 +55,19 @@ def edit_user(uid: int, body: UserPatch, admin=Depends(require("admin"))):
 @router.get("/admin/overview")
 def overview(_=Depends(require("admin"))):
     u = urlparse(os.environ["DATABASE_URL"])
-    info = q1("select current_database() as name, pg_size_pretty(pg_database_size(current_database())) as size, current_setting('server_version') as version")
-    try:  # only a superuser may read this; managed databases (Neon, Supabase, ...) refuse, which is fine
-        data_dir = q1("select current_setting('data_directory') as d")["d"]
-    except Exception:
-        data_dir = None
+    # MySQL equivalents for PostgreSQL functions
+    info = q1("select database() as name, 'N/A' as size, version() as version")
+    data_dir = None  # MySQL doesn't expose data directory to regular users
     users = q(f"select {USER_COLS} from users order by id")
     by_role: dict[str, int] = {}
     for x in users:
         if x["active"]:
             by_role[x["role"]] = by_role.get(x["role"], 0) + 1
-    tables = [q1(f"select '{t}' as \"table\", count(*) as \"rows\", pg_size_pretty(pg_total_relation_size('{t}')) as size from {t}") for t in TABLES]
-    act = q1("select count(*) as total, count(*) filter (where moved_at >= current_date) as today, max(moved_at) as last_scan from plant_location_history")
+    # MySQL: table row counts, size not easily available without SHOW TABLE STATUS
+    tables = [q1(f"select '{t}' as \"table\", count(*) as \"rows\", 'N/A' as size from {t}") for t in TABLES]
+    act = q1("select count(*) as total, count(case when moved_at >= current_date() then 1 end) as today, max(moved_at) as last_scan from plant_location_history")
     return {
-        "database": {**info, "host": u.hostname or "local socket", "port": u.port or 5432, "data_directory": data_dir},
+        "database": {**info, "host": u.hostname or "local socket", "port": u.port or 3306, "data_directory": data_dir},
         "members": {"total": len([x for x in users if x["active"]]), "by_role": by_role},
         "users": users, "tables": tables, "scans": act,
     }
