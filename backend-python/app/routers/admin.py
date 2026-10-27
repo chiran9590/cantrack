@@ -21,8 +21,9 @@ def list_users(_=Depends(require("admin"))):
 @router.post("/users", status_code=201)
 def add_user(b: NewUser, admin=Depends(require("admin"))):
     with tx() as c:
-        r = c.execute(f"insert into users(name,email,password_hash,role) values (%s,%s,%s,%s) returning {USER_COLS}",
-                      (b.name.strip(), b.email.strip(), hash_pw(b.password), b.role)).fetchone()
+        c.execute("insert into users(name,email,password_hash,role) values (%s,%s,%s,%s)",
+                  (b.name.strip(), b.email.strip(), hash_pw(b.password), b.role))
+        r = c.execute(f"select {USER_COLS} from users where id=%s", (c.lastrowid,)).fetchone()
         audit(c, admin["id"], "user.create", f"user:{r['id']}", None, {"email": b.email, "role": b.role})
     return r
 

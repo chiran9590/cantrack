@@ -78,24 +78,73 @@ def close_pool():
         _pool_config = None
 
 
+def connect_args() -> dict:
+    """host / port / user / password / database / TLS settings parsed from DATABASE_URL.
+
+    urlparse() puts the '?ssl-mode=REQUIRED' part of an Aiven URL in .query, NOT in .path, so TLS has to be
+    read from .query. Cloud hosts (anything that is not localhost) get TLS unless the URL says ssl-mode=DISABLED.
+    """
+    u = urlparse(database_url())
+    params = {k.lower(): v[-1].lower() for k, v in parse_qs(u.query).items()}
+    mode = params.get("ssl-mode") or params.get("ssl_mode") or ""
+    host = u.hostname or "localhost"
+    disabled = mode == "disabled" or params.get("ssl") in ("false", "0")
+    wants_tls = (mode in ("required", "preferred", "verify_ca", "verify_identity")
+                 or params.get("ssl") in ("true", "1")
+                 or host not in LOCAL_HOSTS)
+    args = {"host": host, "port": u.port or 3306, "user": u.username, "password": u.password,
+            "database": u.path.lstrip("/") or "defaultdb"}
+    if wants_tls and not disabled:
+        args["ssl"] = {"check_hostname": False}   # encrypted; Aiven's CA is not bundled, so the hostname is not verified
+    return args
+
+
+class _CommitConnection(pymysql.connections.Connection):
+    """PyMySQL's own `with conn:` just closes the connection and silently throws uncommitted work away
+    (that is why seed.py never saved the admin user). This one commits on success and rolls back on error."""
+
+    def __exit__(self, exc_type, exc, tb):
+        try:
+            if exc_type is None:
+                self.commit()
+            else:
+                self.rollback()
+        finally:
+            self.close()
+
+
 def get_connection():
     """A standalone connection for scripts (init_db, seed). Use as a context manager: commits on success."""
-    u = urlparse(database_url())
-    host = u.hostname or "localhost"
-    port = u.port or 3306
-    user = u.username
-    password = u.password
-    database = u.path.lstrip("/") if u.path else "defaultdb"
-    
-    # Cloud MySQL (Aiven, ...) requires TLS. Aiven URLs end in ?ssl-mode=REQUIRED.
-    use_ssl = False
-    if "?" in database:
-        database, query = database.split("?", 1)
-        use_ssl = "ssl-mode=REQUIRED" in query or "ssl=true" in query
-    ssl = {"ssl": {"check_hostname": False}} if use_ssl else {}
-    
-    return pymysql.connect(host=host, user=user, password=password, database=database,
-                           port=port, cursorclass=DictCursor, charset="utf8mb4", **ssl)
+    return _CommitConnection(**connect_args(), cursorclass=DictCursor, charset="utf8mb4", connect_timeout=15)
+
+
+class _Tx:
+    """What tx() hands to the routers. Works like a connection (c.cursor()), plus:
+      c.execute(sql, params) -> the cursor, so c.execute(...).fetchone() works
+      c.lastrowid            -> id of the last INSERT (MySQL has no INSERT ... RETURNING)
+    """
+
+    def __init__(self, conn):
+        self._conn = conn
+        self._cursors = []
+        self.lastrowid = None
+
+    def execute(self, sql, params=None):
+        cur = self._conn.cursor()
+        self._cursors.append(cur)
+        cur.execute(sql, params)
+        self.lastrowid = cur.lastrowid
+        return cur
+
+    def close_cursors(self):
+        for cur in self._cursors:
+            try:
+                cur.close()
+            except Exception:
+                pass
+
+    def __getattr__(self, name):          # cursor(), commit(), ... fall through to the real connection
+        return getattr(self._conn, name)
 
 
 def q(sql, params=None):
@@ -136,13 +185,15 @@ def query(sql, params=None):
 def tx():
     """Several statements in ONE transaction: commits on success, rolls back on any error."""
     conn = get_connection()
+    c = _Tx(conn)
     try:
-        yield conn
+        yield c
         conn.commit()
     except Exception:
         conn.rollback()
         raise
     finally:
+        c.close_cursors()
         conn.close()
 
 

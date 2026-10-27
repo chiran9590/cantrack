@@ -44,8 +44,10 @@ def register(b: Register):
     if role not in ("member", "gardener", "breeder", "manager"):
         role = "member"
     with tx() as c:
-        u = c.execute("insert into users(name,email,password_hash,role,last_login_at) values (%s,%s,%s,%s,now()) returning id,name,email,role",
-                      (b.name.strip(), b.email.strip(), hash_pw(b.password), role)).fetchone()
+        # MySQL has no "INSERT ... RETURNING": insert, then read the new id from c.lastrowid.
+        c.execute("insert into users(name,email,password_hash,role,last_login_at) values (%s,%s,%s,%s,now())",
+                  (b.name.strip(), b.email.strip(), hash_pw(b.password), role))
+        u = {"id": c.lastrowid, "name": b.name.strip(), "email": b.email.strip(), "role": role}
         audit(c, u["id"], "user.register", f"user:{u['id']}", None, {"email": u["email"], "role": role})
     return {"token": sign(u), "user": u}
 

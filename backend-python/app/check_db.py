@@ -3,7 +3,7 @@ import sys
 
 import pymysql
 
-from .db import database_url, describe_url
+from .db import connect_args, database_url, describe_url
 
 HINTS = {
     "access denied": "Wrong user or password in DATABASE_URL. With Aiven, copy the connection string again from the dashboard.",
@@ -17,29 +17,8 @@ HINTS = {
 try:
     target = describe_url()
     print(f"Connecting to {target} ...")
-    from urllib.parse import urlparse
-    u = urlparse(database_url())
-    
-    # Check for SSL mode in query string
-    use_ssl = False
-    if "?" in u.path:
-        path, query = u.path.split("?", 1)
-        use_ssl = "ssl-mode=REQUIRED" in query or "ssl=true" in query
-    else:
-        path = u.path
-        query = u.query
-    
-    ssl = {"ssl": {"check_hostname": False}} if use_ssl else {}
-    
-    with pymysql.connect(
-        host=u.hostname,
-        port=u.port or 3306,
-        user=u.username,
-        password=u.password,
-        database=path.lstrip("/") if path else "defaultdb",
-        connect_timeout=20,
-        **ssl
-    ) as conn:
+    database_url()   # raises a clear error if DATABASE_URL is missing or not mysql://
+    with pymysql.connect(**connect_args(), connect_timeout=20) as conn:
         with conn.cursor() as cur:
             cur.execute("select current_user(), database(), version()")
             user, db, ver = cur.fetchone()
