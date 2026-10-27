@@ -65,7 +65,7 @@ with get_connection() as conn:   # one transaction: all or nothing
                     cur.execute("""insert into plant_location_history(plant_uuid,gid,position_id,moved_at,recorded_by,source,session_id)
                                     values (%s,%s,%s,%s,%s,'web','S-SEED')""", (pl["uuid"], pl["gid"], pl["current_position_id"], moved_at, admin_id))
 
-                cur.execute("select uuid, current_position_id from plants order by random() limit 15")
+                cur.execute("select uuid, current_position_id from plants order by rand() limit 15")
                 for pl in cur.fetchall():
                     cur.execute("""insert into plant_status_history(plant_uuid,from_status,to_status,last_position_id,reason,recorded_by)
                                     values (%s,'active','removed',%s,'Demo: removed from programme',%s)""", (pl["uuid"], pl["current_position_id"], admin_id))
