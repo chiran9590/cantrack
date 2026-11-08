@@ -1,0 +1,30 @@
+services:
+  - type: web
+    name: cantrack-backend
+    runtime: python
+    plan: free
+    rootDir: backend-python
+    buildCommand: pip install -r requirements.txt
+    startCommand: bash start.sh
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.7"
+      - key: DATABASE_URL        # paste your Neon connection string in the Render dashboard
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: CORS_ORIGIN         # e.g. https://cantrack.vercel.app  (no trailing slash)
+        sync: false
+      - key: SEED_ADMIN_PASSWORD
+        sync: false
+      - key: OPEN_REGISTRATION
+        value: "true"
+      - key: REGISTRATION_ROLE
+        value: "member"
+      - key: PHENOMEONE_BASE_URL
+        value: ""
+      - key: PHENOMEONE_USER
+        value: ""
+      - key: PHENOMEONE_PASSWORD
+        value: ""
